@@ -104,7 +104,7 @@ int decode_brc_buffer_serial(unsigned char * src, unsigned char * dst, size_t sr
 	init_vmtf(&state);
 
 	size_t bucket[256], bucket_end[256];
-	unsigned char sort_map[256], R2S[256], s, r;
+	unsigned char sort_map[256], s, r;
 	uint32_t freqs[256] = {0};
 
 	memcpy(freqs, src, BRC_SUB_HEADER_SIZE); 
@@ -124,7 +124,6 @@ int decode_brc_buffer_serial(unsigned char * src, unsigned char * dst, size_t sr
 
 	for(size_t i = 0, bucket_pos = 0; i < unique_syms; i++) {
 		s = sort_map[i];
-		R2S[read_head[bucket_pos]] = s;
 		state.map[read_head[bucket_pos]] = s;
 		bucket[s] = bucket_pos + 1;
 		bucket_pos += freqs[s];
@@ -134,7 +133,8 @@ int decode_brc_buffer_serial(unsigned char * src, unsigned char * dst, size_t sr
 	for(size_t i = 0, s = state.map[0]; i < dst_size; i++)	{
 		write_head[i] = s;
 		if(bucket[s] < bucket_end[s]) {
-			if(r = read_head[bucket[s]++]) {
+			r = read_head[bucket[s]++];
+			if(r) {
 				inverse_vmtf_update(&state, r);
 				state.map[r] = s;
 				s = state.map[0];

@@ -68,20 +68,28 @@ int encode_stream(FILE * f_input, FILE * f_output, int num_threads) {
 			output_size,
 			num_threads
 			) != EXIT_SUCCESS)
-				return printf(" Failed to decode input! \n"), EXIT_FAILURE;
+				return printf(" Failed to encode buffer! \n"), EXIT_FAILURE;
 
 		cpu_time += ((double)clock() - (double)start) / CLOCKS_PER_SEC;
 
 		fwrite(dst_buffer, 1, output_size, f_output);
+
+		printf(" read %llu MB, cpu time = %.3f seconds, throughput = %.3f MB/s\r", 
+			(long long)(total_bytes_read / 1000000),
+			cpu_time,
+			((double)total_bytes_read /  1000000.f) / cpu_time
+		);
 	}
 
-	printf(" cpu time = %.3f seconds, throughput = %.3f MB/s\n", 
+	printf(" read %llu MB, cpu time = %.3f seconds, throughput = %.3f MB/s\n", 
+		(long long)(total_bytes_read / 1000000),
 		cpu_time,
 		((double)total_bytes_read /  1000000.f) / cpu_time
 	);
 
 	free(src_buffer);
 	free(dst_buffer);
+	return EXIT_SUCCESS;
 }
 
 int decode_stream(FILE * f_input, FILE * f_output, int num_threads) {
@@ -113,20 +121,28 @@ int decode_stream(FILE * f_input, FILE * f_output, int num_threads) {
 			output_size,
 			num_threads
 			) != EXIT_SUCCESS)
-				return printf(" Failed to decode output! \n"), EXIT_FAILURE;
+				return printf(" Failed to decode buffer! \n"), EXIT_FAILURE;
 
 		cpu_time += ((double)clock() - (double)start) / CLOCKS_PER_SEC;
 
 		fwrite(dst_buffer, 1, output_size, f_output);
+
+	printf(" read %llu MB, cpu time = %.3f seconds, throughput = %.3f MB/s\r", 
+			(long long)(total_bytes_read / 1000000),
+			cpu_time,
+			((double)total_bytes_read /  1000000.f) / cpu_time
+		);
 	}
 
-	printf(" cpu time = %.3f seconds, throughput = %.3f MB/s\n", 
+	printf(" read %llu MB, cpu time = %.3f seconds, throughput = %.3f MB/s\n", 
+		(long long)(total_bytes_read / 1000000),
 		cpu_time,
 		((double)total_bytes_read /  1000000.f) / cpu_time
 	);
 
 	free(src_buffer);
 	free(dst_buffer);
+	return EXIT_SUCCESS;
 }
 
 int main(int argc, char ** argv) {
@@ -155,10 +171,14 @@ int main(int argc, char ** argv) {
 
 	switch(argv[1][0]) {
 		case 'c': {
-			int err = encode_stream(f_input, f_output, num_threads);
+			if(encode_stream(f_input, f_output, num_threads) != EXIT_SUCCESS) {
+				return printf(" Encoding failed!  \n"), EXIT_FAILURE;
+			}
 		} break;
 		case 'd': {
-			int err = decode_stream(f_input, f_output, num_threads);
+			if(decode_stream(f_input, f_output, num_threads) != EXIT_SUCCESS){
+				return printf(" Decoding failed!  \n"), EXIT_FAILURE;
+			}
 		} break;
 		default: printf(" Invalid argument!\n");
 	}
