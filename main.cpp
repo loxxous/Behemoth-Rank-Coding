@@ -38,8 +38,6 @@
 /* moderate sized buffer for parallel operation */
 #define STREAMING_BUFFER_SIZE (16 << 20)
 
-#if 1
-
 int encode_stream(FILE * f_input, FILE * f_output, int num_threads) {
 	size_t src_size = STREAMING_BUFFER_SIZE;
 	size_t dst_size = STREAMING_BUFFER_SIZE + brc_safe_buffer_size();
@@ -130,60 +128,6 @@ int decode_stream(FILE * f_input, FILE * f_output, int num_threads) {
 	free(src_buffer);
 	free(dst_buffer);
 }
-#else 
-int encode_file(FILE * f_input, FILE * f_output, int num_threads) {
-	size_t src_size = get_file_size(f_input);
-	size_t dst_size = src_size + brc_safe_buffer_size(); // The whole safe buffer size will be utilized
-	unsigned char * src_buffer = (unsigned char*)malloc(src_size);
-	unsigned char * dst_buffer = (unsigned char*)malloc(dst_size);
-	memset(src_buffer, 0, src_size);
-	memset(dst_buffer, 0, dst_size);
-	if(!src_buffer) return printf(" Failed to allocate input!  \n"), EXIT_FAILURE;
-	if(!dst_buffer) return printf(" Failed to allocate output! \n"), EXIT_FAILURE;
-	fread(src_buffer, 1, src_size, f_input);
-
-	time_t start; start = clock();
-
-	if(encode_brc_buffer_parallel(src_buffer, dst_buffer, src_size, dst_size, num_threads) != EXIT_SUCCESS)
-		return printf(" Failed to decode input! \n"), EXIT_FAILURE;
-		
-	double cpu_time = ((double)clock() - (double)start) / CLOCKS_PER_SEC;
-	printf(" cpu time = %.3f seconds, throughput = %.3f MB/s\n", 
-		cpu_time,
-		((double)src_size /  1000000.f) / cpu_time
-	);
-
-	fwrite(dst_buffer, 1, dst_size, f_output);
-	free(src_buffer);
-	free(dst_buffer);
-}
-
-int decode_file(FILE * f_input, FILE * f_output, int num_threads) {
-	size_t src_size = get_file_size(f_input);
-	size_t dst_size = src_size - brc_safe_buffer_size();
-	unsigned char * src_buffer = (unsigned char*)malloc(src_size);
-	unsigned char * dst_buffer = (unsigned char*)malloc(dst_size);
-	memset(src_buffer, 0, src_size);
-	memset(dst_buffer, 0, dst_size);
-	if(!src_buffer) return printf(" Failed to allocate input!  \n"), EXIT_FAILURE;
-	if(!dst_buffer) return printf(" Failed to allocate output! \n"), EXIT_FAILURE;
-	fread(src_buffer, 1, src_size, f_input);
-
-	time_t start; start = clock();
-
-	if(decode_brc_buffer_parallel(src_buffer, dst_buffer, src_size, dst_size, num_threads) != EXIT_SUCCESS)
-		return printf(" Failed to decode input! \n"), EXIT_FAILURE;
-
-	double cpu_time = ((double)clock() - (double)start) / CLOCKS_PER_SEC;
-	printf(" cpu time = %.3f seconds, throughput = %.3f MB/s\n", 
-		cpu_time,
-		((double)dst_size /  1000000.f) / cpu_time
-	);
-	fwrite(dst_buffer, 1, dst_size, f_output);
-	free(src_buffer);
-	free(dst_buffer);
-}
-#endif
 
 int main(int argc, char ** argv) {
 	if(argc < 4) {
