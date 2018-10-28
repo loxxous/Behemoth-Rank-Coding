@@ -15,8 +15,8 @@
 
 #include "common.hpp"
 
-#define BRC_SUB_HEADER_SIZE (sizeof(size_t) * 256)
-#define BRC_BLOCK_HEADER_SIZE (sizeof(size_t) * 2)
+#define BRC_SUB_HEADER_SIZE (sizeof(uint32_t) * 256)
+#define BRC_BLOCK_HEADER_SIZE (sizeof(uint32_t) * 2)
 #define BRC_MAX_THREADS 16
 #define BRC_MIN_BLOCK_SIZE (1 << 20)
 
@@ -24,5 +24,5 @@
 size_t brc_safe_buffer_size();
 
 /* parallel buffer interface to any number of threads (limited to 16 to prevent register pressure) */
-int encode_brc_buffer_parallel(unsigned char * src, unsigned char * dst, size_t src_size, size_t dst_size, size_t num_threads);
-int decode_brc_buffer_parallel(unsigned char * src, unsigned char * dst, size_t src_size, size_t dst_size, size_t num_threads);
+int encode_brc_buffer_parallel(unsigned char * src, unsigned char * dst, size_t src_size, size_t dst_size, uint32_t num_threads);
+int decode_brc_buffer_parallel(unsigned char * src, unsigned char * dst, size_t src_size, size_t dst_size, uint32_t num_threads);

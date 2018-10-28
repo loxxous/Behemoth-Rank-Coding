@@ -32,8 +32,8 @@ inline void inverse_vmtf_update(vmtf_s * x, unsigned char q) {
 	while(++j < q);
 }
 
-inline void generate_sorted_map(size_t * freqs, unsigned char * map) {
-	size_t freqs_cpy[256];
+inline void generate_sorted_map(uint32_t * freqs, unsigned char * map) {
+	uint32_t freqs_cpy[256];
 	for(size_t i = 0; i < 256; i++)
 		freqs_cpy[i] = freqs[i];
 
@@ -61,7 +61,7 @@ int encode_brc_buffer_serial(unsigned char * src, unsigned char * dst, size_t sr
 
 	size_t bucket[256];
 	unsigned char sort_map[256], s, r;
-	size_t freqs[256] = {0};
+	uint32_t freqs[256] = {0};
 
 	size_t unique_syms = 0;
 	for (size_t i = 0; i < src_size; i++) {
@@ -105,7 +105,7 @@ int decode_brc_buffer_serial(unsigned char * src, unsigned char * dst, size_t sr
 
 	size_t bucket[256], bucket_end[256];
 	unsigned char sort_map[256], R2S[256], s, r;
-	size_t freqs[256] = {0};
+	uint32_t freqs[256] = {0};
 
 	memcpy(freqs, src, BRC_SUB_HEADER_SIZE); 
 
@@ -148,18 +148,18 @@ int decode_brc_buffer_serial(unsigned char * src, unsigned char * dst, size_t sr
 	return EXIT_SUCCESS;
 }
 
-int encode_brc_buffer_parallel(unsigned char * src, unsigned char * dst, size_t src_size, size_t dst_size, size_t num_threads) {
+int encode_brc_buffer_parallel(unsigned char * src, unsigned char * dst, size_t src_size, size_t dst_size, uint32_t num_threads) {
 	if((dst_size - src_size) < brc_safe_buffer_size())
 		return printf(" Allocation not large enough! \n"), EXIT_FAILURE;
 
-	if(num_threads <  1) num_threads =  1;
-	if(num_threads > 32) num_threads = 32;
+	if(num_threads < 1) num_threads =  1;
+	if(num_threads > BRC_MAX_THREADS) num_threads = BRC_MAX_THREADS;
 
-	size_t step = src_size / num_threads;
+	uint32_t step = src_size / num_threads;
 	unsigned char * write_head = dst + BRC_BLOCK_HEADER_SIZE;
 
-	memcpy(dst, &step, sizeof(size_t));
-	memcpy(dst + sizeof(size_t), &num_threads, sizeof(size_t));
+	memcpy(dst, &step, sizeof(uint32_t));
+	memcpy(dst + sizeof(uint32_t), &num_threads, sizeof(uint32_t));
 
 	int errs[num_threads];
 	if(1) {
@@ -203,16 +203,16 @@ int encode_brc_buffer_parallel(unsigned char * src, unsigned char * dst, size_t 
 	return EXIT_SUCCESS;
 }
 
-int decode_brc_buffer_parallel(unsigned char * src, unsigned char * dst, size_t src_size, size_t dst_size, size_t num_threads) {
+int decode_brc_buffer_parallel(unsigned char * src, unsigned char * dst, size_t src_size, size_t dst_size, uint32_t num_threads) {
 	if((src_size - dst_size) < brc_safe_buffer_size())
 		return printf(" Allocation not large enough! \n"), EXIT_FAILURE;
 
 	if(num_threads <  1) num_threads =  1;
-	if(num_threads > 32) num_threads = 32;
+	if(num_threads > BRC_MAX_THREADS) num_threads = BRC_MAX_THREADS;
 
-	size_t step, partitions;
-	memcpy(&step, src, sizeof(size_t));
-	memcpy(&partitions, src + sizeof(size_t), sizeof(size_t));
+	uint32_t step, partitions;
+	memcpy(&step, src, sizeof(uint32_t));
+	memcpy(&partitions, src + sizeof(uint32_t), sizeof(uint32_t));
 
 	unsigned char * read_head = src + BRC_BLOCK_HEADER_SIZE;
 	int errs[partitions];
