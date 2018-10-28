@@ -20,7 +20,6 @@
 #define BRC_MAX_THREADS 16
 #define BRC_MAGIC   0xB82C0000 /* high bit packed for magic */
 #define BRC_VERSION 0x00000002 /* low bit packed for version */
-#define BRC_MIN_BLOCK_SIZE (1 << 20)
 
 /* use this when allocating, we need the allocated input space + brc_safe_buffer_size() for the writing destination */
 size_t brc_safe_buffer_size();
