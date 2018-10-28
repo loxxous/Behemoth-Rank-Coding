@@ -9,6 +9,7 @@ BRC can also operate in parallel via OpenMP.
 
 Here's some numbers from BRC versus gmtf_v2f by Eugene Shelwien on enwik9.bwt.
 Note: time to compress via fpaqc is not included, these are purely timings of the rank transforms themselves.
+
 Implementation         | Encode speed | Decode speed| Compressed size (via fpaqc)|
 -----------------------|--------------|-------------|---------------------------|
 BRC_AVX 8-threads      | 640 MB/s     | 610 MB/s    | 170,798,057 bytes         |
