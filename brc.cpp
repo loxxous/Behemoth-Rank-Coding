@@ -155,49 +155,42 @@ int encode_brc_buffer_parallel(unsigned char * src, unsigned char * dst, size_t 
 	if(num_threads < 1) num_threads =  1;
 	if(num_threads > BRC_MAX_THREADS) num_threads = BRC_MAX_THREADS;
 
-	uint32_t step = src_size / num_threads;
 	unsigned char * write_head = dst + BRC_BLOCK_HEADER_SIZE;
+	uint32_t step = src_size / BRC_MAX_THREADS, magic = BRC_MAGIC | BRC_VERSION;
 
 	memcpy(dst, &step, sizeof(uint32_t));
-	memcpy(dst + sizeof(uint32_t), &num_threads, sizeof(uint32_t));
+	memcpy(dst + sizeof(uint32_t), &magic, sizeof(uint32_t));
 
-	int errs[num_threads];
+	#define BRC_ENCODE() {                                                            \
+		size_t src_start_pos = step * i;                                              \
+		size_t src_end_pos = __min(step * (i + 1), src_size);                         \
+		size_t dst_start_pos = (BRC_SUB_HEADER_SIZE + step) * i;                      \
+		size_t dst_end_pos = __min((BRC_SUB_HEADER_SIZE + step) * (i + 1), dst_size); \
+		if(i == BRC_MAX_THREADS - 1)                                                  \
+			src_end_pos = src_size;                                                   \
+		errs[i] = encode_brc_buffer_serial(                                           \
+			src + src_start_pos,                                                      \
+			write_head + dst_start_pos,                                               \
+			src_end_pos - src_start_pos,                                              \
+			dst_end_pos - dst_start_pos                                               \
+		);                                                                            \
+	}
+	
+
+	int errs[BRC_MAX_THREADS];
 	if(1) {
-		#pragma omp parallel for
-		for(size_t i = 0; i < num_threads; i++) {
-			size_t src_start_pos = step * i;
-			size_t src_end_pos = __min(step * (i + 1), src_size);
-			size_t dst_start_pos = (BRC_SUB_HEADER_SIZE + step) * i;
-			size_t dst_end_pos = __min((BRC_SUB_HEADER_SIZE + step) * (i + 1), dst_size);
-
-			if(i == num_threads - 1)
-				src_end_pos = src_size;
-
-			errs[i] = encode_brc_buffer_serial(
-				src + src_start_pos, 
-				write_head + dst_start_pos, 
-				src_end_pos - src_start_pos, 
-				dst_end_pos - dst_start_pos
-			);
+		#pragma omp parallel for num_threads(num_threads)
+		for(size_t i = 0; i < BRC_MAX_THREADS; i++) {
+			BRC_ENCODE();
 		}
 	} else {
-		size_t src_start_pos = step * 0;
-		size_t src_end_pos = __min(step * (0 + 1), src_size);
-		size_t dst_start_pos = (BRC_SUB_HEADER_SIZE + step) * 0;
-		size_t dst_end_pos = __min((BRC_SUB_HEADER_SIZE + step) * (0 + 1), dst_size);
-		
-		src_end_pos = src_size;
-
-		errs[0] = encode_brc_buffer_serial(
-			src + src_start_pos, 
-			write_head + dst_start_pos, 
-			src_end_pos - src_start_pos, 
-			dst_end_pos - dst_start_pos
-		);
+		for(size_t i = 0; i < BRC_MAX_THREADS; i++) {
+			BRC_ENCODE();
+		}
 	}
 
 	int err = 0;
-	for(size_t i = 0; i < num_threads; i++)
+	for(size_t i = 0; i < BRC_MAX_THREADS; i++)
 		err += errs[i];
 
 	return EXIT_SUCCESS;
@@ -210,48 +203,43 @@ int decode_brc_buffer_parallel(unsigned char * src, unsigned char * dst, size_t 
 	if(num_threads <  1) num_threads =  1;
 	if(num_threads > BRC_MAX_THREADS) num_threads = BRC_MAX_THREADS;
 
-	uint32_t step, partitions;
-	memcpy(&step, src, sizeof(uint32_t));
-	memcpy(&partitions, src + sizeof(uint32_t), sizeof(uint32_t));
-
 	unsigned char * read_head = src + BRC_BLOCK_HEADER_SIZE;
-	int errs[partitions];
-	if(num_threads > 1 || partitions > 1) {
+	uint32_t step, magic;
+	memcpy(&step, src, sizeof(uint32_t));
+	memcpy(&magic, src + sizeof(uint32_t), sizeof(uint32_t));
+
+	if((magic & 0xffff0000) != BRC_MAGIC) return printf(" Data not in BRC format! \n"), EXIT_FAILURE;
+	if((magic & 0x0000ffff) > BRC_VERSION) return printf(" Invalid BRC revision detected! \n"), EXIT_FAILURE;
+
+	#define BRC_DECODE() {                                                            \
+		size_t dst_start_pos = step * i;                                              \
+		size_t dst_end_pos = __min(step * (i + 1), src_size);                         \
+		size_t src_start_pos = (BRC_SUB_HEADER_SIZE + step) * i;                      \
+		size_t src_end_pos = __min((BRC_SUB_HEADER_SIZE + step) * (i + 1), dst_size); \
+		if(i == BRC_MAX_THREADS - 1)                                                  \
+			dst_end_pos = dst_size;                                                   \
+		errs[i] = decode_brc_buffer_serial(                                           \
+			read_head + src_start_pos,                                                \
+			dst + dst_start_pos,                                                      \
+			src_end_pos - src_start_pos,                                              \
+			dst_end_pos - dst_start_pos                                               \
+		);                                                                            \
+	}
+	
+	int errs[BRC_MAX_THREADS];
+	if(num_threads > 1) {
 		#pragma omp parallel for num_threads(num_threads)
-		for(size_t i = 0; i < partitions; i++) {
-			size_t dst_start_pos = step * i;
-			size_t dst_end_pos = __min(step * (i + 1), src_size);
-			size_t src_start_pos = (BRC_SUB_HEADER_SIZE + step) * i;
-			size_t src_end_pos = __min((BRC_SUB_HEADER_SIZE + step) * (i + 1), dst_size);
-
-			if(i == partitions - 1)
-				dst_end_pos = dst_size;
-
-			errs[i] = decode_brc_buffer_serial(
-				read_head + src_start_pos, 
-				dst + dst_start_pos, 
-				src_end_pos - src_start_pos, 
-				dst_end_pos - dst_start_pos
-			);
+		for(size_t i = 0; i < BRC_MAX_THREADS; i++) {
+			BRC_DECODE();
 		}
 	} else {
-		size_t dst_start_pos = step * 0;
-		size_t dst_end_pos = __min(step * (0 + 1), src_size);
-		size_t src_start_pos = (BRC_SUB_HEADER_SIZE + step) * 0;
-		size_t src_end_pos = __min((BRC_SUB_HEADER_SIZE + step) * (0 + 1), dst_size);
-
-		dst_end_pos = dst_size;
-
-		errs[0] = decode_brc_buffer_serial(
-			read_head + src_start_pos, 
-			dst + dst_start_pos, 
-			src_end_pos - src_start_pos, 
-			dst_end_pos - dst_start_pos
-		);
+		for(size_t i = 0; i < BRC_MAX_THREADS; i++) {
+			BRC_DECODE();
+		}
 	}
 
 	int err = 0;
-	for(size_t i = 0; i < partitions; i++)
+	for(size_t i = 0; i < BRC_MAX_THREADS; i++)
 		err += errs[i];
 
 	return err;

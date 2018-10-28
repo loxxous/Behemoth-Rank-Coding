@@ -147,13 +147,13 @@ int decode_stream(FILE * f_input, FILE * f_output, int num_threads) {
 
 int main(int argc, char ** argv) {
 	if(argc < 4) {
-		printf(" BRC - Behemoth Rank Coding for BWT \n\
+		printf(" BRC version %i - Behemoth Rank Coding for BWT \n\
  Lucas Marsh (c) 2018, MIT licensed \n\
  Usage:  brc.exe  <c|d>  input  output  num-threads\n\
  Arguments: \n\
     c : compress \n\
     d : decompress \n\
- Press 'enter' to continue");
+ Press 'enter' to continue", BRC_VERSION);
 		getchar();
 		return 0;
 	}
