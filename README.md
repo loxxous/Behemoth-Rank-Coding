@@ -1,5 +1,5 @@
 # Behemoth-Rank-Coding
-Ultra Fast and Strong Burrows Wheeler Model
+Fast and Strong Burrows Wheeler Model
 
 BRC is a very careful implementation of non-sequential move to front coding, the encoder is fully vectorized and decoder is partially vectorized. 
 
