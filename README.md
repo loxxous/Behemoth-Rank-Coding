@@ -3,9 +3,7 @@ Fast and Strong Burrows Wheeler Model
 
 BRC is a very careful implementation of non-sequential move to front coding, the encoder is fully vectorized and decoder is partially vectorized. 
 
-BRC acheives compression rates on par with QLFC when paired with an order-0 entropy coder, and has nice properties which allows compression to remain about the same regardless of the chunk size making streaming compression of BWT chunks viable.
-
-BRC can also operate in parallel via OpenMP.
+BRC acheives compression rates on par with QLFC when paired with an order-0 entropy coder, and BRC can operate in parallel via OpenMP.
 
 Here's some numbers from BRC versus gmtf_v2f by Eugene Shelwien on enwik9.bwt.
 Note: time to compress via fpaqc is not included, these are purely timings of the rank transforms themselves.
