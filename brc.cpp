@@ -58,14 +58,6 @@ inline void generate_sorted_map(uint32_t * freqs, unsigned char * map) {
 	}
 }
 
-int fast_crc(unsigned char * ptr, size_t size){
-	int x = 3;
-	for(size_t i = 0; i < size; i++){
-		x = ((x + ptr[i] + 3) * 87654211);
-	}
-	return x;
-}
-
 void compute_x4_partition_cdf(uint32_t * histo, unsigned char * src, size_t size) {
 	uint32_t freqs_unroll[4][256] = {{0}};
 	size_t i = 0;
