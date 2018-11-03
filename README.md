@@ -7,9 +7,13 @@ BRC acheives compression rates on par with QLFC when paired with an order-0 entr
 
 Note: time to compress via FSE is not included, these are purely timings of the rank transforms themselves.
 
-Implementation         | Encode speed | Decode speed| Compressed size (via FSE)|
------------------------|--------------|-------------|---------------------------|
-BRCv3_AVX 16-threads     | 545 MB/s     | 512 MB/s    | 185,281,681 bytes         |
-BRCv3_AVX 8-threads      | 523 MB/s     | 493 MB/s    | 185,281,681 bytes         |
-BRCv3_AVX 4-threads      | 352 MB/s     | 294 MB/s    | 185,281,681 bytes         |
-BRCv3_AVX 1-thread       | 108 MB/s     | 93 MB/s    | 185,281,681 bytes         |
+Implementation         | Encode speed | Decode speed| Compressed size (via fpaqc)| Compressed size (via FSE) |
+-----------------------|--------------|-------------|---------------------------|----------------------------
+BRC3_AVX 16-threads    | 545 MB/s     | 512 MB/s    | 170,928,089 bytes         | 185,281,681 bytes          |
+BRC3_AVX 8-threads     | 523 MB/s     | 493 MB/s    | 170,928,089 bytes         | 185,281,681 bytes          |
+BRC3_AVX 4-threads     | 352 MB/s     | 294 MB/s    | 170,928,089 bytes         | 185,281,681 bytes          |
+BRC3_AVX 1-thread      | 108 MB/s     | 93 MB/s     | 170,928,089 bytes         | 185,281,681 bytes          |
+BRC2_AVX 16-threads    | 696 MB/s     | 760 MB/s    | 171,033,530 bytes         | 195,116,241 bytes          |
+BRC2_AVX 8-threads     | 660 MB/s     | 685 MB/s    | 171,033,530 bytes         | 195,116,241 bytes          |
+BRC2_AVX 4-threads     | 423 MB/s     | 435 MB/s    | 171,033,530 bytes         | 195,116,241 bytes          |
+BRC2_AVX 1-thread      | 145 MB/s     | 148 MB/s    | 171,033,530 bytes         | 195,116,241 bytes          |
