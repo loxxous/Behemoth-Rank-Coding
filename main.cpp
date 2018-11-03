@@ -74,14 +74,14 @@ int encode_stream(FILE * f_input, FILE * f_output, int num_threads) {
 
 		fwrite(dst_buffer, 1, output_size, f_output);
 
-		printf(" read %llu MB, cpu time = %.3f seconds, throughput = %.3f MB/s\r", 
+		printf(" read %llu MB, cpu time = %.3f seconds, throughput = %.3f MB/s       \r", 
 			(long long)(total_bytes_read / 1000000),
 			cpu_time,
 			((double)total_bytes_read /  1000000.f) / cpu_time
 		);
 	}
 
-	printf(" read %llu MB, cpu time = %.3f seconds, throughput = %.3f MB/s\n", 
+	printf(" read %llu MB, cpu time = %.3f seconds, throughput = %.3f MB/s       \n", 
 		(long long)(total_bytes_read / 1000000),
 		cpu_time,
 		((double)total_bytes_read /  1000000.f) / cpu_time
@@ -127,14 +127,14 @@ int decode_stream(FILE * f_input, FILE * f_output, int num_threads) {
 
 		fwrite(dst_buffer, 1, output_size, f_output);
 
-	printf(" read %llu MB, cpu time = %.3f seconds, throughput = %.3f MB/s\r", 
+	printf(" read %llu MB, cpu time = %.3f seconds, throughput = %.3f MB/s       \r", 
 			(long long)(total_bytes_read / 1000000),
 			cpu_time,
 			((double)total_bytes_read /  1000000.f) / cpu_time
 		);
 	}
 
-	printf(" read %llu MB, cpu time = %.3f seconds, throughput = %.3f MB/s\n", 
+	printf(" read %llu MB, cpu time = %.3f seconds, throughput = %.3f MB/s       \n", 
 		(long long)(total_bytes_read / 1000000),
 		cpu_time,
 		((double)total_bytes_read /  1000000.f) / cpu_time

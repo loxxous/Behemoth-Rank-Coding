@@ -15,11 +15,11 @@
 
 #include "common.hpp"
 
-#define BRC_SUB_HEADER_SIZE   (sizeof(uint32_t) * 256)
+#define BRC_SUB_HEADER_SIZE   ((sizeof(uint32_t) * 256) + 1)
 #define BRC_BLOCK_HEADER_SIZE (sizeof(uint32_t) *   2)
 #define BRC_MAX_THREADS 16
 #define BRC_MAGIC   0xB82C0000 /* high bit packed for magic */
-#define BRC_VERSION 0x00000002 /* low bit packed for version */
+#define BRC_VERSION 0x00000003 /* low bit packed for version */
 
 /* use this when allocating, we need the allocated input space + brc_safe_buffer_size() for the writing destination */
 size_t brc_safe_buffer_size();

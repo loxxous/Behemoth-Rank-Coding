@@ -26,10 +26,16 @@ inline void init_vmtf(vmtf_s * x) {
 		x->map[i] = i;
 }
 
-inline void inverse_vmtf_update(vmtf_s * x, unsigned char q) {
+inline void inverse_vmtf_update_only(vmtf_s * x, unsigned char r, unsigned char s) {
 	size_t j = 0;
 	do x->map[j] = x->map[j + 1];
-	while(++j < q);
+	while(++j < r);
+	x->map[r] = s;
+}
+
+inline unsigned char inverse_vmtf_update_single(vmtf_s * x, unsigned char r, unsigned char s) {
+	inverse_vmtf_update_only(x, r, s);
+	return x->map[0];
 }
 
 inline void generate_sorted_map(uint32_t * freqs, unsigned char * map) {
@@ -52,6 +58,75 @@ inline void generate_sorted_map(uint32_t * freqs, unsigned char * map) {
 	}
 }
 
+int fast_crc(unsigned char * ptr, size_t size){
+	int x = 3;
+	for(size_t i = 0; i < size; i++){
+		x = ((x + ptr[i] + 3) * 87654211);
+	}
+	return x;
+}
+
+void compute_x4_partition_cdf(uint32_t * histo, unsigned char * src, size_t size) {
+	uint32_t freqs_unroll[4][256] = {{0}};
+	size_t i = 0;
+	while((i + 4) < size) {
+		freqs_unroll[0][src[i + 0]]++;
+		freqs_unroll[1][src[i + 1]]++;
+		freqs_unroll[2][src[i + 2]]++;
+		freqs_unroll[3][src[i + 3]]++;
+		i += 4;
+	}	
+
+	while(i < size) {
+		freqs_unroll[0][src[i]]++;
+		i++;
+	}
+
+	for(i = 0; i < 256; i++)
+		histo[i] = freqs_unroll[0][i] + freqs_unroll[1][i] + freqs_unroll[2][i] + freqs_unroll[3][i];
+}
+
+unsigned char structured_encode(unsigned char * src, unsigned char * dst, size_t size) {
+	size_t i = 0, pos = 0, start = 0;
+	uint32_t bucket[256], freqs[256];
+	memset(bucket, 0, 256 * sizeof(uint32_t));
+	memset(freqs, 0, 256 * sizeof(uint32_t));
+	compute_x4_partition_cdf(freqs, src, size); 
+
+	for(i = 0; i < 256; i++) {
+		bucket[i] = start;
+		start += freqs[i];
+	}
+
+	unsigned char sentinal = src[size - 1];
+	pos = bucket[sentinal]++;
+	for(i = 0; i < size; i++) {
+		dst[pos] = src[i];
+		pos = bucket[src[i]]++;
+	}
+	
+	return sentinal;
+}
+
+void structured_decode(unsigned char * src, unsigned char * dst, size_t size, unsigned char sentinal) {
+	size_t i = 0, pos = 0, start = 0;
+	uint32_t bucket[256], freqs[256];
+	memset(bucket, 0, 256 * sizeof(uint32_t));
+	memset(freqs, 0, 256 * sizeof(uint32_t));
+	compute_x4_partition_cdf(freqs, src, size); 
+
+	for(i = 0; i < 256; i++) {
+		bucket[i] = start;
+		start += freqs[i];
+	}
+
+	pos = bucket[sentinal]++;
+	for(i = 0; i < size; i++) {
+		dst[i] = src[pos];
+		pos = bucket[dst[i]]++;
+	}
+}
+
 int encode_brc_buffer_serial(unsigned char * src, unsigned char * dst, size_t src_size, size_t dst_size) {
 	unsigned char * read_head  = src;
 	unsigned char * write_head = dst + BRC_SUB_HEADER_SIZE;
@@ -59,22 +134,19 @@ int encode_brc_buffer_serial(unsigned char * src, unsigned char * dst, size_t sr
 	vmtf_s state;
 	init_vmtf(&state);
 
-	size_t bucket[256];
-	unsigned char sort_map[256], s, r;
+	size_t bucket[256] = {0};
 	uint32_t freqs[256] = {0};
+	unsigned char sort_map[256], s, r;
 
 	size_t unique_syms = 0;
 	for (size_t i = 0; i < src_size; i++) {
 		s = read_head[i];
-		if (freqs[s] == 0) {
-			state.map[s] = unique_syms;
-			unique_syms++;
-		}
+		if (freqs[s] == 0)
+			state.map[s] = unique_syms++;
 		freqs[s]++;
 	}
 
-	memcpy(dst, freqs, BRC_SUB_HEADER_SIZE); 
-
+	memcpy(dst, freqs, BRC_SUB_HEADER_SIZE - 1); 
 	generate_sorted_map(freqs, sort_map);
 
 	for(size_t i = 0, bucket_pos = 0; i < unique_syms; i++) {
@@ -88,11 +160,16 @@ int encode_brc_buffer_serial(unsigned char * src, unsigned char * dst, size_t sr
 		r = state.map[s]; 
 		write_head[bucket[s]++] = r;
 		if(r) {
-			for(size_t i = 0; i < 256; i++)
-				state.map[i] += (state.map[i] < r); 
+			for(size_t i = 0; i < 256; i++) {
+				state.map[i] += (state.map[i] < r);
+			}
 			state.map[s] = 0;
 		}
 	}
+
+	*(dst + BRC_SUB_HEADER_SIZE - 1) = structured_encode(write_head, read_head, src_size);
+	memcpy(write_head, read_head, src_size);
+
 	return EXIT_SUCCESS;
 }
 
@@ -100,20 +177,24 @@ int decode_brc_buffer_serial(unsigned char * src, unsigned char * dst, size_t sr
 	unsigned char * read_head  = src + BRC_SUB_HEADER_SIZE;
 	unsigned char * write_head = dst;
 
+	structured_decode(read_head, write_head, dst_size, *(src + BRC_SUB_HEADER_SIZE - 1));
+	memcpy(read_head, write_head, dst_size);
+
 	vmtf_s state;
 	init_vmtf(&state);
 
-	size_t bucket[256], bucket_end[256];
-	unsigned char sort_map[256], s, r;
+	size_t bucket[256] = {0}, bucket_end[256] = {0};
 	uint32_t freqs[256] = {0};
+	unsigned char sort_map[256], s, r;
 
-	memcpy(freqs, src, BRC_SUB_HEADER_SIZE); 
+	memcpy(freqs, src, BRC_SUB_HEADER_SIZE - 1); 
 
 	size_t total = 0;
 	for(size_t i = 0; i < 256; i++)
 		total += freqs[i];
+
 	if(total != dst_size) 
-		return EXIT_FAILURE;
+		return printf(" Invalid sub header detected! \n"), EXIT_FAILURE;
 	
 	size_t unique_syms = 0;
 	for(size_t i = 0; i < 256; i++)
@@ -129,22 +210,14 @@ int decode_brc_buffer_serial(unsigned char * src, unsigned char * dst, size_t sr
 		bucket_pos += freqs[s];
 		bucket_end[s] = bucket_pos;
 	}
-	
-	for(size_t i = 0, s = state.map[0]; i < dst_size; i++)	{
-		write_head[i] = s;
-		if(bucket[s] < bucket_end[s]) {
-			r = read_head[bucket[s]++];
-			if(r) {
-				inverse_vmtf_update(&state, r);
-				state.map[r] = s;
-				s = state.map[0];
-			}
-		}
-		else if(unique_syms--) {
-			inverse_vmtf_update(&state, unique_syms);
-			s = state.map[0];
-		}
+
+	s = state.map[0];
+	for(size_t i = 0; i < dst_size; i++) {
+		write_head[i] = s, r = 0xff;
+		if(bucket[s] < bucket_end[s]) r = read_head[bucket[s]++];
+		if(r) s = inverse_vmtf_update_single(&state, r, s); 
 	}
+
 	return EXIT_SUCCESS;
 }
 
@@ -178,7 +251,7 @@ int encode_brc_buffer_parallel(unsigned char * src, unsigned char * dst, size_t 
 	
 
 	int errs[BRC_MAX_THREADS];
-	if(1) {
+	if(num_threads > 1) {
 		#pragma omp parallel for num_threads(num_threads)
 		for(size_t i = 0; i < BRC_MAX_THREADS; i++) {
 			BRC_ENCODE();
@@ -193,7 +266,7 @@ int encode_brc_buffer_parallel(unsigned char * src, unsigned char * dst, size_t 
 	for(size_t i = 0; i < BRC_MAX_THREADS; i++)
 		err += errs[i];
 
-	return EXIT_SUCCESS;
+	return err;
 }
 
 int decode_brc_buffer_parallel(unsigned char * src, unsigned char * dst, size_t src_size, size_t dst_size, uint32_t num_threads) {
@@ -209,7 +282,7 @@ int decode_brc_buffer_parallel(unsigned char * src, unsigned char * dst, size_t 
 	memcpy(&magic, src + sizeof(uint32_t), sizeof(uint32_t));
 
 	if((magic & 0xffff0000) != BRC_MAGIC) return printf(" Data not in BRC format! \n"), EXIT_FAILURE;
-	if((magic & 0x0000ffff) > BRC_VERSION) return printf(" Invalid BRC revision detected! \n"), EXIT_FAILURE;
+	if((magic & 0x0000ffff) != BRC_VERSION) return printf(" Invalid BRC revision detected! \n"), EXIT_FAILURE;
 
 	#define BRC_DECODE() {                                                            \
 		size_t dst_start_pos = step * i;                                              \
