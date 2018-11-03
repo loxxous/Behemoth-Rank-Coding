@@ -5,7 +5,7 @@ BRC is a very careful implementation of non-sequential move to front coding, the
 
 BRC acheives compression rates on par with QLFC when paired with an order-0 entropy coder, and BRC can operate in parallel via OpenMP.
 
-Note: time to compress via FSE is not included, these are purely timings of the rank transforms themselves.
+Note: time to compress via fpaqc and FSE is not included, these are purely timings of the rank transforms themselves.
 
 Implementation         | Encode speed | Decode speed| Compressed size (via fpaqc)| Compressed size (via FSE) |
 -----------------------|--------------|-------------|---------------------------|----------------------------
