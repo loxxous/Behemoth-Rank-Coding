@@ -1,22 +1,94 @@
 /*
 	BRC - Behemoth Rank Coding for BWT
-
 	MIT License
-
 	Copyright (c) 2018 Lucas Marsh
-
 	Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
 	The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
 	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 #include "brc.hpp"
 
-size_t brc_safe_buffer_size() {
-	return BRC_BLOCK_HEADER_SIZE + (BRC_SUB_HEADER_SIZE * BRC_MAX_THREADS);
+#define BRC_VSRC_FOOTER_SIZE (sizeof(uint32_t) * 256)
+#define BRC_RLT_FOOTER_SIZE (1)
+#define BRC_PAD_SIZE (8)
+
+void brc_memcopy(void * dst, void * src, size_t size) {
+	unsigned char * s = (unsigned char*)src;
+	unsigned char * d = (unsigned char*)dst;
+	size_t i = 0;
+	while((i + 8) < size) {
+		*((uint64_t*)&d[i]) = *((uint64_t*)&s[i]);
+		i += 8;
+	}
+	while(i < size) {
+		d[i] = s[i];
+		i++;
+	}
 }
 
+/*** BYTEWISE ZERO RUN LENGTH CODER  ***/
+size_t rlt_forwards(unsigned char * src, unsigned char * dst, size_t size) {
+	unsigned char * write_head = dst;
+	unsigned char * write_end = write_head + size;
+	size_t i = 0;
+	while(i < size && write_head < write_end) {	
+		if(src[i] == 0) {
+			size_t run = 1;
+			while (src[i] == src[i + run] && (i + run) < size)
+				run++;
+			i += run;
+			size_t L = run + 1; 
+			size_t msb = 0;
+			asm("bsrq %1,%0" : "=r"(msb) : "r"(L));
+			while(msb--)
+				*write_head++ = (L >> msb) & 1;	
+		} else if (src[i] >= 0xfe) {
+			*write_head++ = 0xff;
+			*write_head++ = src[i++] == 0xff;
+		} else {
+			*write_head++ = src[i++] + 1;
+		}
+	}
+	if(i < size) {
+		brc_memcopy(dst, src, size);
+		*(dst + size) = 0;
+		return size + BRC_RLT_FOOTER_SIZE;
+	} else {
+		size_t packed_size = write_head - dst;
+		*(dst + packed_size) = 1;
+		return packed_size + BRC_RLT_FOOTER_SIZE;
+	}
+}
+
+size_t rlt_reverse(unsigned char * src, unsigned char * dst, size_t size) {
+	size_t unpacked = size - BRC_RLT_FOOTER_SIZE;
+	if(*(src + unpacked)  == 0) {
+		brc_memcopy(dst, src, unpacked);
+		return unpacked;
+	} else {	
+		unsigned char * write_head = dst;
+		unsigned char * write_end = write_head + unpacked;
+		size_t i = 0; 
+		while(i < unpacked) {
+			if(src[i] == 0xff) {
+				i++;
+				*write_head++ = 0xfe + src[i++];
+			} else if (src[i] > 1) {
+				*write_head++ = src[i++] - 1;
+			} else {
+				int rle = 1;
+				while (src[i] <= 1 && i < unpacked)
+					rle = (rle << 1) | src[i++];
+				rle -= 1;
+				while(rle--)
+					*write_head++ = 0;	
+			}
+		}
+		return write_head - dst;
+	}
+}
+
+/*** VECTORIZED SORTED RANK TRANSFORM ***/
 struct vmtf_s {
 	unsigned char map[256];
 };
@@ -58,70 +130,9 @@ inline void generate_sorted_map(uint32_t * freqs, unsigned char * map) {
 	}
 }
 
-void compute_x4_partition_cdf(uint32_t * histo, unsigned char * src, size_t size) {
-	uint32_t freqs_unroll[4][256] = {{0}};
-	size_t i = 0;
-	while((i + 4) < size) {
-		freqs_unroll[0][src[i + 0]]++;
-		freqs_unroll[1][src[i + 1]]++;
-		freqs_unroll[2][src[i + 2]]++;
-		freqs_unroll[3][src[i + 3]]++;
-		i += 4;
-	}	
-
-	while(i < size) {
-		freqs_unroll[0][src[i]]++;
-		i++;
-	}
-
-	for(i = 0; i < 256; i++)
-		histo[i] = freqs_unroll[0][i] + freqs_unroll[1][i] + freqs_unroll[2][i] + freqs_unroll[3][i];
-}
-
-unsigned char structured_encode(unsigned char * src, unsigned char * dst, size_t size) {
-	size_t i = 0, pos = 0, start = 0;
-	uint32_t bucket[256], freqs[256];
-	memset(bucket, 0, 256 * sizeof(uint32_t));
-	memset(freqs, 0, 256 * sizeof(uint32_t));
-	compute_x4_partition_cdf(freqs, src, size); 
-
-	for(i = 0; i < 256; i++) {
-		bucket[i] = start;
-		start += freqs[i];
-	}
-
-	unsigned char sentinal = src[size - 1];
-	pos = bucket[sentinal]++;
-	for(i = 0; i < size; i++) {
-		dst[pos] = src[i];
-		pos = bucket[src[i]]++;
-	}
-	
-	return sentinal;
-}
-
-void structured_decode(unsigned char * src, unsigned char * dst, size_t size, unsigned char sentinal) {
-	size_t i = 0, pos = 0, start = 0;
-	uint32_t bucket[256], freqs[256];
-	memset(bucket, 0, 256 * sizeof(uint32_t));
-	memset(freqs, 0, 256 * sizeof(uint32_t));
-	compute_x4_partition_cdf(freqs, src, size); 
-
-	for(i = 0; i < 256; i++) {
-		bucket[i] = start;
-		start += freqs[i];
-	}
-
-	pos = bucket[sentinal]++;
-	for(i = 0; i < size; i++) {
-		dst[i] = src[pos];
-		pos = bucket[dst[i]]++;
-	}
-}
-
-int encode_brc_buffer_serial(unsigned char * src, unsigned char * dst, size_t src_size, size_t dst_size) {
+int vsrc_forwards(unsigned char * src, unsigned char * dst, size_t src_size) {
 	unsigned char * read_head  = src;
-	unsigned char * write_head = dst + BRC_SUB_HEADER_SIZE;
+	unsigned char * write_head = dst;
 
 	vmtf_s state;
 	init_vmtf(&state);
@@ -138,7 +149,7 @@ int encode_brc_buffer_serial(unsigned char * src, unsigned char * dst, size_t sr
 		freqs[s]++;
 	}
 
-	memcpy(dst, freqs, BRC_SUB_HEADER_SIZE - 1); 
+	brc_memcopy(dst + src_size, freqs, BRC_VSRC_FOOTER_SIZE); 
 	generate_sorted_map(freqs, sort_map);
 
 	for(size_t i = 0, bucket_pos = 0; i < unique_syms; i++) {
@@ -152,25 +163,18 @@ int encode_brc_buffer_serial(unsigned char * src, unsigned char * dst, size_t sr
 		r = state.map[s]; 
 		write_head[bucket[s]++] = r;
 		if(r) {
-			for(size_t i = 0; i < 256; i++) {
+			for(size_t i = 0; i < 256; i++)
 				state.map[i] += (state.map[i] < r);
-			}
 			state.map[s] = 0;
 		}
 	}
-
-	*(dst + BRC_SUB_HEADER_SIZE - 1) = structured_encode(write_head, read_head, src_size);
-	memcpy(write_head, read_head, src_size);
-
-	return EXIT_SUCCESS;
+	return src_size + BRC_VSRC_FOOTER_SIZE;
 }
 
-int decode_brc_buffer_serial(unsigned char * src, unsigned char * dst, size_t src_size, size_t dst_size) {
-	unsigned char * read_head  = src + BRC_SUB_HEADER_SIZE;
+int vsrc_reverse(unsigned char * src, unsigned char * dst, size_t src_size) {
+	unsigned char * read_head  = src;
 	unsigned char * write_head = dst;
-
-	structured_decode(read_head, write_head, dst_size, *(src + BRC_SUB_HEADER_SIZE - 1));
-	memcpy(read_head, write_head, dst_size);
+	size_t dst_size = src_size - BRC_VSRC_FOOTER_SIZE;
 
 	vmtf_s state;
 	init_vmtf(&state);
@@ -179,14 +183,14 @@ int decode_brc_buffer_serial(unsigned char * src, unsigned char * dst, size_t sr
 	uint32_t freqs[256] = {0};
 	unsigned char sort_map[256], s, r;
 
-	memcpy(freqs, src, BRC_SUB_HEADER_SIZE - 1); 
+	brc_memcopy(freqs, src + dst_size, BRC_VSRC_FOOTER_SIZE); 
 
 	size_t total = 0;
 	for(size_t i = 0; i < 256; i++)
 		total += freqs[i];
 
 	if(total != dst_size) 
-		return printf(" Invalid sub header detected! \n"), EXIT_FAILURE;
+		return printf(" Invalid sub header detected! \n"), BRC_EXIT_FAILURE;
 	
 	size_t unique_syms = 0;
 	for(size_t i = 0; i < 256; i++)
@@ -210,102 +214,78 @@ int decode_brc_buffer_serial(unsigned char * src, unsigned char * dst, size_t sr
 		if(r) s = inverse_vmtf_update_single(&state, r, s); 
 	}
 
-	return EXIT_SUCCESS;
+	return dst_size;
 }
 
-int encode_brc_buffer_parallel(unsigned char * src, unsigned char * dst, size_t src_size, size_t dst_size, uint32_t num_threads) {
-	if((dst_size - src_size) < brc_safe_buffer_size())
-		return printf(" Allocation not large enough! \n"), EXIT_FAILURE;
-
-	if(num_threads < 1) num_threads =  1;
-	if(num_threads > BRC_MAX_THREADS) num_threads = BRC_MAX_THREADS;
-
-	unsigned char * write_head = dst + BRC_BLOCK_HEADER_SIZE;
-	uint32_t step = src_size / BRC_MAX_THREADS, magic = BRC_MAGIC | BRC_VERSION;
-
-	memcpy(dst, &step, sizeof(uint32_t));
-	memcpy(dst + sizeof(uint32_t), &magic, sizeof(uint32_t));
-
-	#define BRC_ENCODE() {                                                            \
-		size_t src_start_pos = step * i;                                              \
-		size_t src_end_pos = __min(step * (i + 1), src_size);                         \
-		size_t dst_start_pos = (BRC_SUB_HEADER_SIZE + step) * i;                      \
-		size_t dst_end_pos = __min((BRC_SUB_HEADER_SIZE + step) * (i + 1), dst_size); \
-		if(i == BRC_MAX_THREADS - 1)                                                  \
-			src_end_pos = src_size;                                                   \
-		errs[i] = encode_brc_buffer_serial(                                           \
-			src + src_start_pos,                                                      \
-			write_head + dst_start_pos,                                               \
-			src_end_pos - src_start_pos,                                              \
-			dst_end_pos - dst_start_pos                                               \
-		);                                                                            \
-	}
-	
-
-	int errs[BRC_MAX_THREADS];
-	if(num_threads > 1) {
-		#pragma omp parallel for num_threads(num_threads)
-		for(size_t i = 0; i < BRC_MAX_THREADS; i++) {
-			BRC_ENCODE();
-		}
-	} else {
-		for(size_t i = 0; i < BRC_MAX_THREADS; i++) {
-			BRC_ENCODE();
-		}
-	}
-
-	int err = 0;
-	for(size_t i = 0; i < BRC_MAX_THREADS; i++)
-		err += errs[i];
-
-	return err;
+/*** BRC TRANSFORM ***/
+size_t brc_safe_memory_bound(size_t x) {
+	return x + BRC_VSRC_FOOTER_SIZE + BRC_RLT_FOOTER_SIZE + BRC_PAD_SIZE;
 }
 
-int decode_brc_buffer_parallel(unsigned char * src, unsigned char * dst, size_t src_size, size_t dst_size, uint32_t num_threads) {
-	if((src_size - dst_size) < brc_safe_buffer_size())
-		return printf(" Allocation not large enough! \n"), EXIT_FAILURE;
+int brc_init_cxt(brc_cxt_s * brc_cxt, size_t src_size) {
+	size_t mempool = brc_safe_memory_bound(src_size);
+	brc_cxt->block = (unsigned char*)malloc(mempool);
+	if(brc_cxt->block == NULL) return BRC_EXIT_FAILURE;
+	brc_cxt->eob = mempool;
+}
 
-	if(num_threads <  1) num_threads =  1;
-	if(num_threads > BRC_MAX_THREADS) num_threads = BRC_MAX_THREADS;
+void brc_free_cxt(brc_cxt_s * brc_cxt) {
+	free(brc_cxt->block);
+	brc_cxt->block = NULL;
+	brc_cxt->size = 0;
+	brc_cxt->eob = 0;
+}
 
-	unsigned char * read_head = src + BRC_BLOCK_HEADER_SIZE;
-	uint32_t step, magic;
-	memcpy(&step, src, sizeof(uint32_t));
-	memcpy(&magic, src + sizeof(uint32_t), sizeof(uint32_t));
-
-	if((magic & 0xffff0000) != BRC_MAGIC) return printf(" Data not in BRC format! \n"), EXIT_FAILURE;
-	if((magic & 0x0000ffff) != BRC_VERSION) return printf(" Invalid BRC revision detected! \n"), EXIT_FAILURE;
-
-	#define BRC_DECODE() {                                                            \
-		size_t dst_start_pos = step * i;                                              \
-		size_t dst_end_pos = __min(step * (i + 1), src_size);                         \
-		size_t src_start_pos = (BRC_SUB_HEADER_SIZE + step) * i;                      \
-		size_t src_end_pos = __min((BRC_SUB_HEADER_SIZE + step) * (i + 1), dst_size); \
-		if(i == BRC_MAX_THREADS - 1)                                                  \
-			dst_end_pos = dst_size;                                                   \
-		errs[i] = decode_brc_buffer_serial(                                           \
-			read_head + src_start_pos,                                                \
-			dst + dst_start_pos,                                                      \
-			src_end_pos - src_start_pos,                                              \
-			dst_end_pos - dst_start_pos                                               \
-		);                                                                            \
-	}
-	
-	int errs[BRC_MAX_THREADS];
-	if(num_threads > 1) {
-		#pragma omp parallel for num_threads(num_threads)
-		for(size_t i = 0; i < BRC_MAX_THREADS; i++) {
-			BRC_DECODE();
-		}
+int brc_cond_alloc(brc_cxt_s * brc_cxt, size_t size) {
+	if(brc_cxt->block == NULL) {
+		size_t mempool = brc_safe_memory_bound(size);
+		brc_cxt->block = (unsigned char*)malloc(mempool);
+		if(brc_cxt->block == NULL) return BRC_EXIT_FAILURE;
+		brc_cxt->eob = mempool;
 	} else {
-		for(size_t i = 0; i < BRC_MAX_THREADS; i++) {
-			BRC_DECODE();
+		size_t mempool = brc_safe_memory_bound(size);
+		if(brc_cxt->eob < mempool) {
+			brc_cxt->block = (unsigned char*)realloc(brc_cxt->block, mempool);
+			if(brc_cxt->block == NULL) return BRC_EXIT_FAILURE;
+			brc_cxt->eob = mempool;
 		}
 	}
+	return BRC_EXIT_SUCCESS;
+}
 
-	int err = 0;
-	for(size_t i = 0; i < BRC_MAX_THREADS; i++)
-		err += errs[i];
+int brc_encode(brc_cxt_s * brc_cxt, unsigned char * src, size_t src_size) {
+	if(brc_cond_alloc(brc_cxt, src_size) == BRC_EXIT_FAILURE) return BRC_EXIT_FAILURE;
 
-	return err;
+	int dst_size = vsrc_forwards(src, brc_cxt->block, src_size);
+	if(dst_size == BRC_EXIT_FAILURE) return BRC_EXIT_FAILURE;
+
+	unsigned char * swap = (unsigned char*)malloc(dst_size);
+	if(swap == NULL) return BRC_EXIT_FAILURE;
+	brc_memcopy(swap, brc_cxt->block, dst_size);
+
+	size_t packed_size = rlt_forwards(swap, brc_cxt->block, dst_size);
+
+	brc_cxt->size = (size_t)packed_size;
+	free(swap);
+
+	return BRC_EXIT_SUCCESS;
+}
+
+int brc_decode(brc_cxt_s * brc_cxt, unsigned char * dst, size_t * dst_size) {
+	if(brc_cond_alloc(brc_cxt, brc_cxt->size) == BRC_EXIT_FAILURE) return BRC_EXIT_FAILURE;
+
+	unsigned char * swap = (unsigned char*)malloc(brc_cxt->size);
+	if(swap == NULL) return BRC_EXIT_FAILURE;
+	brc_memcopy(swap, brc_cxt->block, brc_cxt->size);
+
+	size_t origin_size = rlt_reverse(swap, brc_cxt->block, brc_cxt->size);
+
+	brc_cxt->size = (size_t)origin_size;
+	free(swap);
+
+	origin_size = vsrc_reverse(brc_cxt->block, dst, brc_cxt->size);
+	if(origin_size == BRC_EXIT_FAILURE) return BRC_EXIT_FAILURE;
+	*dst_size = (size_t)origin_size;
+
+	return BRC_EXIT_SUCCESS;
 }
