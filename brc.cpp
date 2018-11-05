@@ -10,24 +10,46 @@
 
 #define BRC_VSRC_FOOTER_SIZE (sizeof(uint32_t) * 256)
 #define BRC_RLT_FOOTER_SIZE (1)
-#define BRC_PAD_SIZE (8)
+#define BRC_PAD_SIZE (16)
 
-/*** only safe for separate buffers ***/
+/*** basic utilities **/
 void brc_memcopy_separate(void * dst, void * src, size_t size) {
 	unsigned char * s = (unsigned char*)src;
 	unsigned char * d = (unsigned char*)dst;
-	size_t i = 0;
-	while((i + 8) < size) {
-		*((uint64_t*)&d[i]) = *((uint64_t*)&s[i]);
-		i += 8;
-	}
-	while(i < size) {
-		d[i] = s[i];
-		i++;
+	if((((size_t)s) % 8) == 0 && (((size_t)d) % 8) == 0) {
+		size_t i = 0;
+		while((i + 8) < size) {
+			*((uint64_t*)&d[i]) = *((uint64_t*)&s[i]);
+			i += 8;
+		}
+		while(i < size) {
+			d[i] = s[i];
+			i++;
+		}
+	} else {
+		memcpy(dst, src, size);
 	}
 }
 
-/*** BYTEWISE ZERO RUN LENGTH CODER  ***/
+void * brc_aligned_malloc(size_t bytes, size_t alignment) {
+	char * base_ptr;
+	char * aligned_ptr;
+
+	size_t pad = alignment + sizeof(size_t);
+	if((base_ptr =(char*)malloc(bytes + pad)) == NULL)
+		return NULL;
+	size_t addr = (size_t)(base_ptr + pad);
+	aligned_ptr = (char *)(addr - (addr % alignment));
+	*((size_t*)aligned_ptr - 1) = (size_t)base_ptr;
+
+	return (void*)aligned_ptr;
+}
+
+void brc_aligned_free(void * aligned_ptr) {
+	free( (char*)(*((size_t*)aligned_ptr - 1)) );
+}
+
+/*** bytewise zero run length coder  ***/
 size_t rlt_forwards(unsigned char * src, unsigned char * dst, size_t size) {
 	unsigned char * write_head = dst;
 	unsigned char * write_end = write_head + size;
@@ -89,7 +111,7 @@ size_t rlt_reverse(unsigned char * src, unsigned char * dst, size_t size) {
 	}
 }
 
-/*** VECTORIZED SORTED RANK TRANSFORM ***/
+/*** vectorized sorted rank transform ***/
 struct vmtf_s {
 	unsigned char map[256];
 };
@@ -225,65 +247,44 @@ size_t brc_safe_memory_bound(size_t x) {
 
 int brc_init_cxt(brc_cxt_s * brc_cxt, size_t src_size) {
 	size_t mempool = brc_safe_memory_bound(src_size);
-	brc_cxt->block = (unsigned char*)malloc(mempool);
+	brc_cxt->block = (unsigned char*)brc_aligned_malloc(mempool, 8);
 	if(brc_cxt->block == NULL) return BRC_EXIT_FAILURE;
 	brc_cxt->eob = mempool;
 	return BRC_EXIT_SUCCESS;
 }
 
 void brc_free_cxt(brc_cxt_s * brc_cxt) {
-	free(brc_cxt->block);
+	brc_aligned_free(brc_cxt->block);
 	brc_cxt->block = NULL;
 	brc_cxt->size = 0;
 	brc_cxt->eob = 0;
 }
 
-int brc_cond_alloc(brc_cxt_s * brc_cxt, size_t size) {
-	if(brc_cxt->block == NULL) {
-		size_t mempool = brc_safe_memory_bound(size);
-		brc_cxt->block = (unsigned char*)malloc(mempool);
-		if(brc_cxt->block == NULL) return BRC_EXIT_FAILURE;
-		brc_cxt->eob = mempool;
-	} else {
-		size_t mempool = brc_safe_memory_bound(size);
-		if(brc_cxt->eob < mempool) {
-			brc_cxt->block = (unsigned char*)realloc(brc_cxt->block, mempool);
-			if(brc_cxt->block == NULL) return BRC_EXIT_FAILURE;
-			brc_cxt->eob = mempool;
-		}
-	}
-	return BRC_EXIT_SUCCESS;
-}
-
 int brc_encode(brc_cxt_s * brc_cxt, unsigned char * src, size_t src_size) {
-	if(brc_cond_alloc(brc_cxt, src_size) == BRC_EXIT_FAILURE) return BRC_EXIT_FAILURE;
-
 	int dst_size = vsrc_forwards(src, brc_cxt->block, src_size);
 	if(dst_size == BRC_EXIT_FAILURE) return BRC_EXIT_FAILURE;
 
-	unsigned char * swap = (unsigned char*)malloc(brc_safe_memory_bound(dst_size));
+	unsigned char * swap = (unsigned char*)brc_aligned_malloc(brc_safe_memory_bound(dst_size), 8);
 	if(swap == NULL) return BRC_EXIT_FAILURE;
 	brc_memcopy_separate(swap, brc_cxt->block, dst_size);
 
 	size_t packed_size = rlt_forwards(swap, brc_cxt->block, dst_size);
 
 	brc_cxt->size = (size_t)packed_size;
-	free(swap);
+	brc_aligned_free(swap);
 
 	return BRC_EXIT_SUCCESS;
 }
 
 int brc_decode(brc_cxt_s * brc_cxt, unsigned char * dst, size_t * dst_size) {
-	if(brc_cond_alloc(brc_cxt, brc_cxt->size) == BRC_EXIT_FAILURE) return BRC_EXIT_FAILURE;
-
-	unsigned char * swap = (unsigned char*)malloc(brc_safe_memory_bound(brc_cxt->size));
+	unsigned char * swap = (unsigned char*)brc_aligned_malloc(brc_safe_memory_bound(brc_cxt->size), 8);
 	if(swap == NULL) return BRC_EXIT_FAILURE;
 	brc_memcopy_separate(swap, brc_cxt->block, brc_cxt->size);
 
 	size_t origin_size = rlt_reverse(swap, brc_cxt->block, brc_cxt->size);
 
 	brc_cxt->size = (size_t)origin_size;
-	free(swap);
+	brc_aligned_free(swap);
 
 	origin_size = vsrc_reverse(brc_cxt->block, dst, brc_cxt->size);
 	if(origin_size == BRC_EXIT_FAILURE) return BRC_EXIT_FAILURE;
