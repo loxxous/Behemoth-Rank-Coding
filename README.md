@@ -5,12 +5,16 @@ BRC is a very careful implementation of non-sequential move to front coding, the
 
 BRC acheives compression rates on par with QLFC when paired with an order-0 entropy coder, and BRC can operate in parallel via OpenMP.
 
-Here's some numbers from BRC versus gmtf_v2f by Eugene Shelwien on the enwik9.bwt test file, tests were run on an i7-7700HQ @ 3.5Ghz.
+Here's some numbers from BRC on the enwik9.bwt test file, tests were run on an i7-7700HQ @ 3.5Ghz.
 
-Note: time to compress via fpaqc and FSE is not included, these are purely timings of the rank transforms themselves.
+Note: time to compress via fpaqc and FSE (32KB blocks) is not included, these are purely timings of the rank transforms themselves.
 
 Implementation         | Encode speed | Decode speed| Compressed size (via fpaqc)| Compressed size (via FSE) |
 -----------------------|--------------|-------------|---------------------------|----------------------------
+BRC4_AVX 16-threads    | 483 MB/s     | 548 MB/s    | 168,556,196 bytes         | 178,988,019 bytes          |
+BRC4_AVX 8-threads     | 456 MB/s     | 486 MB/s    | 168,556,196 bytes         | 178,988,019 bytes          |
+BRC4_AVX 4-threads     | 303 MB/s     | 316 MB/s    | 168,556,196 bytes         | 178,988,019 bytes          |
+BRC4_AVX 1-thread      |  99 MB/s     | 108 MB/s    | 168,556,196 bytes         | 178,988,019 bytes          |
 BRC3_AVX 16-threads    | 545 MB/s     | 512 MB/s    | 170,928,089 bytes         | 185,281,681 bytes          |
 BRC3_AVX 8-threads     | 523 MB/s     | 493 MB/s    | 170,928,089 bytes         | 185,281,681 bytes          |
 BRC3_AVX 4-threads     | 352 MB/s     | 294 MB/s    | 170,928,089 bytes         | 185,281,681 bytes          |
@@ -19,4 +23,3 @@ BRC2_AVX 16-threads    | 696 MB/s     | 760 MB/s    | 171,033,530 bytes         
 BRC2_AVX 8-threads     | 660 MB/s     | 685 MB/s    | 171,033,530 bytes         | 195,116,241 bytes          |
 BRC2_AVX 4-threads     | 423 MB/s     | 435 MB/s    | 171,033,530 bytes         | 195,116,241 bytes          |
 BRC2_AVX 1-thread      | 145 MB/s     | 148 MB/s    | 171,033,530 bytes         | 195,116,241 bytes          |
-MTF_GC70_AVX2x64       | 119 MB/s     | 159 MB/s    | 188,870,259 bytes         | 205,013,403 bytes          |
