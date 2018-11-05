@@ -12,7 +12,8 @@
 #define BRC_RLT_FOOTER_SIZE (1)
 #define BRC_PAD_SIZE (8)
 
-void brc_memcopy(void * dst, void * src, size_t size) {
+/*** only safe for separate buffers ***/
+void brc_memcopy_separate(void * dst, void * src, size_t size) {
 	unsigned char * s = (unsigned char*)src;
 	unsigned char * d = (unsigned char*)dst;
 	size_t i = 0;
@@ -34,7 +35,7 @@ size_t rlt_forwards(unsigned char * src, unsigned char * dst, size_t size) {
 	while(i < size && write_head < write_end) {	
 		if(src[i] == 0) {
 			size_t run = 1;
-			while (src[i] == src[i + run] && (i + run) < size)
+			while ((i + run) < size && src[i] == src[i + run])
 				run++;
 			i += run;
 			size_t L = run + 1; 
@@ -50,7 +51,7 @@ size_t rlt_forwards(unsigned char * src, unsigned char * dst, size_t size) {
 		}
 	}
 	if(i < size) {
-		brc_memcopy(dst, src, size);
+		brc_memcopy_separate(dst, src, size);
 		*(dst + size) = 0;
 		return size + BRC_RLT_FOOTER_SIZE;
 	} else {
@@ -63,7 +64,7 @@ size_t rlt_forwards(unsigned char * src, unsigned char * dst, size_t size) {
 size_t rlt_reverse(unsigned char * src, unsigned char * dst, size_t size) {
 	size_t unpacked = size - BRC_RLT_FOOTER_SIZE;
 	if(*(src + unpacked)  == 0) {
-		brc_memcopy(dst, src, unpacked);
+		brc_memcopy_separate(dst, src, unpacked);
 		return unpacked;
 	} else {	
 		unsigned char * write_head = dst;
@@ -149,7 +150,7 @@ int vsrc_forwards(unsigned char * src, unsigned char * dst, size_t src_size) {
 		freqs[s]++;
 	}
 
-	brc_memcopy(dst + src_size, freqs, BRC_VSRC_FOOTER_SIZE); 
+	brc_memcopy_separate(dst + src_size, freqs, BRC_VSRC_FOOTER_SIZE); 
 	generate_sorted_map(freqs, sort_map);
 
 	for(size_t i = 0, bucket_pos = 0; i < unique_syms; i++) {
@@ -183,7 +184,7 @@ int vsrc_reverse(unsigned char * src, unsigned char * dst, size_t src_size) {
 	uint32_t freqs[256] = {0};
 	unsigned char sort_map[256], s, r;
 
-	brc_memcopy(freqs, src + dst_size, BRC_VSRC_FOOTER_SIZE); 
+	brc_memcopy_separate(freqs, src + dst_size, BRC_VSRC_FOOTER_SIZE); 
 
 	size_t total = 0;
 	for(size_t i = 0; i < 256; i++)
@@ -227,6 +228,7 @@ int brc_init_cxt(brc_cxt_s * brc_cxt, size_t src_size) {
 	brc_cxt->block = (unsigned char*)malloc(mempool);
 	if(brc_cxt->block == NULL) return BRC_EXIT_FAILURE;
 	brc_cxt->eob = mempool;
+	return BRC_EXIT_SUCCESS;
 }
 
 void brc_free_cxt(brc_cxt_s * brc_cxt) {
@@ -259,9 +261,9 @@ int brc_encode(brc_cxt_s * brc_cxt, unsigned char * src, size_t src_size) {
 	int dst_size = vsrc_forwards(src, brc_cxt->block, src_size);
 	if(dst_size == BRC_EXIT_FAILURE) return BRC_EXIT_FAILURE;
 
-	unsigned char * swap = (unsigned char*)malloc(dst_size);
+	unsigned char * swap = (unsigned char*)malloc(brc_safe_memory_bound(dst_size));
 	if(swap == NULL) return BRC_EXIT_FAILURE;
-	brc_memcopy(swap, brc_cxt->block, dst_size);
+	brc_memcopy_separate(swap, brc_cxt->block, dst_size);
 
 	size_t packed_size = rlt_forwards(swap, brc_cxt->block, dst_size);
 
@@ -274,9 +276,9 @@ int brc_encode(brc_cxt_s * brc_cxt, unsigned char * src, size_t src_size) {
 int brc_decode(brc_cxt_s * brc_cxt, unsigned char * dst, size_t * dst_size) {
 	if(brc_cond_alloc(brc_cxt, brc_cxt->size) == BRC_EXIT_FAILURE) return BRC_EXIT_FAILURE;
 
-	unsigned char * swap = (unsigned char*)malloc(brc_cxt->size);
+	unsigned char * swap = (unsigned char*)malloc(brc_safe_memory_bound(brc_cxt->size));
 	if(swap == NULL) return BRC_EXIT_FAILURE;
-	brc_memcopy(swap, brc_cxt->block, brc_cxt->size);
+	brc_memcopy_separate(swap, brc_cxt->block, brc_cxt->size);
 
 	size_t origin_size = rlt_reverse(swap, brc_cxt->block, brc_cxt->size);
 
