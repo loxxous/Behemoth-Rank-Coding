@@ -1,5 +1,5 @@
 # Behemoth-Rank-Coding
-Fast and Strong Burrows Wheeler Model with embedded rank model
+Fast and Strong Burrows Wheeler Model with embedded rle-0
 
 BRC is a very careful implementation of non-sequential move to front coding, the encoder is fully vectorized and decoder is partially vectorized. 
 
@@ -23,3 +23,5 @@ BRC2_AVX 16-threads    | 696 MB/s     | 760 MB/s    | 171,033,530 bytes         
 BRC2_AVX 8-threads     | 660 MB/s     | 685 MB/s    | 171,033,530 bytes         | 195,116,241 bytes          |
 BRC2_AVX 4-threads     | 423 MB/s     | 435 MB/s    | 171,033,530 bytes         | 195,116,241 bytes          |
 BRC2_AVX 1-thread      | 145 MB/s     | 148 MB/s    | 171,033,530 bytes         | 195,116,241 bytes          |
+
+BRC2 used purely rank coding, BRC3 used rank coding hybridized with a byte aligned structured model, BRC4 uses rank coding and byte aligned rle-0. BRC4 attains the highest ratios of all 3 recorded versions, while being the second fastest transform.
